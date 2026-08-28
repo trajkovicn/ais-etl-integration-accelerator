@@ -2,7 +2,7 @@ using '../main.bicep'
 
 param ou = 'fin'
 param biz = 'tax'
-param app = 'btmigr'
+param app = 'intmod'
 param env = 'dev'
 param regionCode = 'eus'
 param instance = '001'

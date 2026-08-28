@@ -91,8 +91,14 @@ module st 'modules/storage.bicep' = {
   }
 }
 
-var storageKey = listKeys(st.outputs.id, '2025-06-01').keys[0].value
-var sbKeys = listKeys(sb.outputs.authRuleId, '2022-10-01-preview')
+var storageAccountId = resourceId('Microsoft.Storage/storageAccounts', storageAccountName)
+var serviceBusAuthRuleId = resourceId(
+  'Microsoft.ServiceBus/namespaces/authorizationRules',
+  serviceBusNamespaceName,
+  'logicapps-dev'
+)
+var storageKey = listKeys(storageAccountId, '2025-06-01').keys[0].value
+var sbKeys = listKeys(serviceBusAuthRuleId, '2022-10-01-preview')
 var sbConnectionString = sbKeys.primaryConnectionString
 
 module kv 'modules/keyvault.bicep' = {
@@ -110,7 +116,10 @@ resource sbConnSecret 'Microsoft.KeyVault/vaults/secrets@2025-05-01' = {
   properties: {
     value: sbConnectionString
   }
-  dependsOn: [kv]
+  dependsOn: [
+    kv
+    sb
+  ]
 }
 
 resource storageKeySecret 'Microsoft.KeyVault/vaults/secrets@2025-05-01' = {
@@ -118,7 +127,10 @@ resource storageKeySecret 'Microsoft.KeyVault/vaults/secrets@2025-05-01' = {
   properties: {
     value: storageKey
   }
-  dependsOn: [kv]
+  dependsOn: [
+    kv
+    st
+  ]
 }
 
 resource storageNameSecret 'Microsoft.KeyVault/vaults/secrets@2025-05-01' = {
@@ -149,6 +161,10 @@ module hello 'modules/logicapp-consumption-hello-world.bicep' = {
     serviceBusConnectionString: sbConnectionString
     serviceBusQueueName: 'inbound'
   }
+  dependsOn: [
+    sb
+    st
+  ]
 }
 
 // ── Private Endpoints (only when VNet is deployed) ───────────

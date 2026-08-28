@@ -6,7 +6,7 @@
     "config": {
       "isWizard": true,
       "basics": {
-        "description": "Deploy an Azure Integration Services (AIS) baseline: Logic Apps (Consumption) + Service Bus + ADLS Gen2 + Integration Account + Key Vault. Includes Hello World XML ingress and a sample Liquid transform."
+        "description": "Deploy a vendor-neutral Azure integration modernization baseline: Logic Apps (Consumption), Service Bus, ADLS Gen2, optional Integration Account, Key Vault, and Log Analytics. Includes a sample XML ingress flow."
       }
     },
     "basics": [
@@ -44,7 +44,7 @@
         "name": "app",
         "type": "Microsoft.Common.TextBox",
         "label": "Workload / App",
-        "defaultValue": "btmigr",
+        "defaultValue": "intmod",
         "constraints": {
           "required": true,
           "validations": [
@@ -193,7 +193,7 @@
             "visible": "[steps('integration').deployIntegrationAccount]",
             "options": {
               "icon": "Info",
-              "text": "Includes a starter Liquid map (XML->JSON) and an optional sample Liquid Logic App."
+              "text": "The repository includes a starter XML-to-JSON Liquid map that can be uploaded separately with the provided utility."
             }
           }
         ]

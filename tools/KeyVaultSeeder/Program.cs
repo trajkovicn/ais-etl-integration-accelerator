@@ -13,13 +13,13 @@ var secretValue = GetArg(args, "--value");
 
 if (string.IsNullOrWhiteSpace(vaultName) || string.IsNullOrWhiteSpace(secretName) || secretValue is null)
 {
-    Console.WriteLine("Usage:
-" +
-        "  dotnet run -- --vault <kvName> --name <secretName> --value <secretValue>
+    Console.WriteLine(
+        """
+        Usage:
+          dotnet run -- --vault <kvName> --name <secretName> --value <secretValue>
 
-" +
-        "Auth: DefaultAzureCredential (az login / VS / MI).
-");
+        Auth: DefaultAzureCredential (az login / VS / MI).
+        """);
     return;
 }
 

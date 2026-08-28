@@ -1,35 +1,73 @@
 {
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-  "contentVersion": "1.2.0.0",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.46.1.21595",
+      "templateHash": "16198483713825602545"
+    }
+  },
   "parameters": {
     "ou": {
-      "type": "string"
+      "type": "string",
+      "metadata": {
+        "description": "Abbreviated organizational unit (OU), e.g., fin, hr, it."
+      }
     },
     "biz": {
-      "type": "string"
+      "type": "string",
+      "metadata": {
+        "description": "Abbreviated business area, e.g., tax, rev, ops."
+      }
     },
     "app": {
       "type": "string",
-      "defaultValue": "btmigr"
+      "defaultValue": "ais",
+      "metadata": {
+        "description": "Workload/app abbreviation, e.g., ais, order, edi."
+      }
     },
     "env": {
       "type": "string",
-      "defaultValue": "dev"
+      "defaultValue": "dev",
+      "allowedValues": [
+        "dev",
+        "tst",
+        "uat",
+        "stg",
+        "prd"
+      ],
+      "metadata": {
+        "description": "Environment code (e.g., dev, tst, uat, stg, prd)."
+      }
     },
     "regionCode": {
-      "type": "string"
+      "type": "string",
+      "metadata": {
+        "description": "Region short code for naming (e.g., eus, wus2). Customer-supplied to match internal conventions."
+      }
     },
     "instance": {
       "type": "string",
-      "defaultValue": "001"
+      "defaultValue": "001",
+      "metadata": {
+        "description": "Instance number for uniqueness, e.g., 001."
+      }
     },
     "location": {
       "type": "string",
-      "defaultValue": "[resourceGroup().location]"
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure deployment location (actual Azure region). Defaults to the resource group location."
+      }
     },
     "deployIntegrationAccount": {
       "type": "bool",
-      "defaultValue": true
+      "defaultValue": true,
+      "metadata": {
+        "description": "Deploy an Integration Account for schemas/maps (XSLT/Liquid), partners, agreements, certificates."
+      }
     },
     "integrationAccountSku": {
       "type": "string",
@@ -38,12 +76,15 @@
         "Free",
         "Basic",
         "Standard"
-      ]
+      ],
+      "metadata": {
+        "description": "Integration Account pricing tier."
+      }
     },
     "keyVaultAdminObjectId": {
       "type": "string",
       "metadata": {
-        "description": "Object ID (GUID) of a user or group granted Key Vault secret permissions."
+        "description": "Object ID (GUID) of a user or group that will be granted Key Vault secret permissions (DEV convenience)."
       }
     },
     "deployVnet": {
@@ -57,7 +98,7 @@
       "type": "string",
       "defaultValue": "10.0.0.0/22",
       "metadata": {
-        "description": "VNet address space (CIDR). Only used when deployVnet is true. Prefix length must be between /16 and /22."
+        "description": "VNet address space (CIDR). Only used when deployVnet is true."
       }
     },
     "deployDnsResolverSubnets": {
@@ -70,1070 +111,1354 @@
   },
   "variables": {
     "baseName": "[toLower(format('{0}-{1}-{2}-{3}-{4}-{5}', parameters('ou'), parameters('biz'), parameters('app'), parameters('env'), parameters('regionCode'), parameters('instance')))]",
+    "vnetName": "[format('vnet-{0}', variables('baseName'))]",
     "logicAppName": "[format('la-{0}', variables('baseName'))]",
     "logAnalyticsName": "[format('log-{0}', variables('baseName'))]",
     "serviceBusNamespaceName": "[format('sb-{0}', variables('baseName'))]",
     "integrationAccountName": "[format('ia-{0}', variables('baseName'))]",
     "storageStem": "[take(replace(variables('baseName'), '-', ''), 18)]",
-    "storageAccountName": "[toLower(take(concat('st', variables('storageStem'), uniqueString(resourceGroup().id)), 24))]",
+    "storageAccountName": "[toLower(take(format('st{0}{1}', variables('storageStem'), uniqueString(resourceGroup().id)), 24))]",
     "keyVaultStem": "[take(replace(variables('baseName'), '-', ''), 20)]",
-    "keyVaultName": "[toLower(take(concat('kv', variables('keyVaultStem')), 24))]",
-    "azureBlobConnectionName": "azureblob",
-    "serviceBusConnectionName": "servicebus",
-    "blobContainerName": "xml-store",
-    "serviceBusQueueName": "inbound",
-    "liquidMapName": "hello-xml-to-json",
-    "liquidLogicAppName": "[format('la-{0}-liquid', variables('baseName'))]",
-    "vnetName": "[format('vnet-{0}', variables('baseName'))]",
-    "snetPrivateEndpointsPrefix": "10.0.0.0/27",
-    "snetServiceBusPrefix": "10.0.0.64/26",
-    "snetKeyVaultPrefix": "10.0.0.128/26",
-    "snetStoragePrefix": "10.0.0.192/26",
-    "snetDnsInboundPrefix": "10.0.1.0/28",
-    "snetDnsOutboundPrefix": "10.0.1.16/28",
-    "requiredSubnets": [
-      {
-        "name": "snet-private-endpoints",
-        "properties": {
-          "addressPrefix": "[variables('snetPrivateEndpointsPrefix')]",
-          "privateEndpointNetworkPolicies": "Disabled"
-        }
-      },
-      {
-        "name": "snet-servicebus",
-        "properties": {
-          "addressPrefix": "[variables('snetServiceBusPrefix')]"
-        }
-      },
-      {
-        "name": "snet-keyvault",
-        "properties": {
-          "addressPrefix": "[variables('snetKeyVaultPrefix')]"
-        }
-      },
-      {
-        "name": "snet-storage",
-        "properties": {
-          "addressPrefix": "[variables('snetStoragePrefix')]"
-        }
-      }
-    ],
-    "dnsSubnets": [
-      {
-        "name": "snet-dns-inbound",
-        "properties": {
-          "addressPrefix": "[variables('snetDnsInboundPrefix')]",
-          "delegations": [
-            {
-              "name": "Microsoft.Network.dnsResolvers",
-              "properties": {
-                "serviceName": "Microsoft.Network/dnsResolvers"
-              }
-            }
-          ]
-        }
-      },
-      {
-        "name": "snet-dns-outbound",
-        "properties": {
-          "addressPrefix": "[variables('snetDnsOutboundPrefix')]",
-          "delegations": [
-            {
-              "name": "Microsoft.Network.dnsResolvers",
-              "properties": {
-                "serviceName": "Microsoft.Network/dnsResolvers"
-              }
-            }
-          ]
-        }
-      }
-    ],
-    "allSubnets": "[if(parameters('deployDnsResolverSubnets'), union(variables('requiredSubnets'), variables('dnsSubnets')), variables('requiredSubnets'))]"
+    "keyVaultName": "[toLower(take(format('kv{0}', variables('keyVaultStem')), 24))]",
+    "storageAccountId": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
+    "serviceBusAuthRuleId": "[resourceId('Microsoft.ServiceBus/namespaces/authorizationRules', variables('serviceBusNamespaceName'), 'logicapps-dev')]"
   },
   "resources": [
     {
-      "condition": "[parameters('deployVnet')]",
-      "type": "Microsoft.Network/virtualNetworks",
-      "apiVersion": "2024-05-01",
-      "name": "[variables('vnetName')]",
-      "location": "[parameters('location')]",
-      "properties": {
-        "addressSpace": {
-          "addressPrefixes": [
-            "[parameters('vnetAddressPrefix')]"
-          ]
-        },
-        "subnets": "[variables('allSubnets')]"
-      }
-    },
-    {
-      "type": "Microsoft.OperationalInsights/workspaces",
-      "apiVersion": "2022-10-01",
-      "name": "[variables('logAnalyticsName')]",
-      "location": "[parameters('location')]",
-      "properties": {
-        "sku": {
-          "name": "PerGB2018"
-        },
-        "retentionInDays": 30
-      }
-    },
-    {
-      "type": "Microsoft.ServiceBus/namespaces",
-      "apiVersion": "2022-10-01-preview",
-      "name": "[variables('serviceBusNamespaceName')]",
-      "location": "[parameters('location')]",
-      "sku": {
-        "name": "Standard",
-        "tier": "Standard"
-      },
-      "properties": {}
-    },
-    {
-      "type": "Microsoft.ServiceBus/namespaces/queues",
-      "apiVersion": "2022-10-01-preview",
-      "name": "[format('{0}/{1}', variables('serviceBusNamespaceName'), variables('serviceBusQueueName'))]",
-      "dependsOn": [
-        "[resourceId('Microsoft.ServiceBus/namespaces', variables('serviceBusNamespaceName'))]"
-      ],
-      "properties": {
-        "lockDuration": "PT1M",
-        "maxSizeInMegabytes": 1024,
-        "defaultMessageTimeToLive": "P14D",
-        "deadLetteringOnMessageExpiration": true
-      }
-    },
-    {
-      "type": "Microsoft.ServiceBus/namespaces/authorizationRules",
-      "apiVersion": "2022-10-01-preview",
-      "name": "[format('{0}/{1}', variables('serviceBusNamespaceName'), 'logicapps-dev')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.ServiceBus/namespaces', variables('serviceBusNamespaceName'))]"
-      ],
-      "properties": {
-        "rights": [
-          "Manage",
-          "Send",
-          "Listen"
-        ]
-      }
-    },
-    {
-      "type": "Microsoft.Storage/storageAccounts",
-      "apiVersion": "2025-06-01",
-      "name": "[variables('storageAccountName')]",
-      "location": "[parameters('location')]",
-      "kind": "StorageV2",
-      "sku": {
-        "name": "Standard_LRS"
-      },
-      "properties": {
-        "isHnsEnabled": true,
-        "minimumTlsVersion": "TLS1_2",
-        "allowBlobPublicAccess": false,
-        "supportsHttpsTrafficOnly": true
-      }
-    },
-    {
-      "type": "Microsoft.Storage/storageAccounts/blobServices",
-      "apiVersion": "2025-06-01",
-      "name": "[format('{0}/default', variables('storageAccountName'))]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
-      ],
-      "properties": {}
-    },
-    {
-      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
-      "apiVersion": "2025-06-01",
-      "name": "[format('{0}/default/{1}', variables('storageAccountName'), variables('blobContainerName'))]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Storage/storageAccounts/blobServices', variables('storageAccountName'), 'default')]"
-      ],
-      "properties": {
-        "publicAccess": "None"
-      }
-    },
-    {
-      "type": "Microsoft.Storage/storageAccounts/fileServices",
-      "apiVersion": "2025-06-01",
-      "name": "[format('{0}/default', variables('storageAccountName'))]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
-      ],
-      "properties": {}
-    },
-    {
-      "type": "Microsoft.Storage/storageAccounts/fileServices/shares",
-      "apiVersion": "2025-06-01",
-      "name": "[format('{0}/default/{1}', variables('storageAccountName'), 'drop')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Storage/storageAccounts/fileServices', variables('storageAccountName'), 'default')]"
-      ],
-      "properties": {
-        "enabledProtocols": "SMB",
-        "shareQuota": 1024
-      }
-    },
-    {
-      "type": "Microsoft.Storage/storageAccounts/fileServices/shares",
-      "apiVersion": "2025-06-01",
-      "name": "[format('{0}/default/{1}', variables('storageAccountName'), 'pickup')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Storage/storageAccounts/fileServices', variables('storageAccountName'), 'default')]"
-      ],
-      "properties": {
-        "enabledProtocols": "SMB",
-        "shareQuota": 1024
-      }
-    },
-    {
-      "type": "Microsoft.KeyVault/vaults",
+      "type": "Microsoft.KeyVault/vaults/secrets",
       "apiVersion": "2025-05-01",
-      "name": "[variables('keyVaultName')]",
-      "location": "[parameters('location')]",
+      "name": "[format('{0}/servicebus-connectionstring', variables('keyVaultName'))]",
       "properties": {
-        "tenantId": "[subscription().tenantId]",
-        "sku": {
-          "family": "A",
-          "name": "standard"
+        "value": "[listKeys(variables('serviceBusAuthRuleId'), '2022-10-01-preview').primaryConnectionString]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'keyvault')]",
+        "[resourceId('Microsoft.Resources/deployments', 'servicebus')]"
+      ]
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2025-05-01",
+      "name": "[format('{0}/storage-account-key', variables('keyVaultName'))]",
+      "properties": {
+        "value": "[listKeys(variables('storageAccountId'), '2025-06-01').keys[0].value]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'keyvault')]",
+        "[resourceId('Microsoft.Resources/deployments', 'storage')]"
+      ]
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2025-05-01",
+      "name": "[format('{0}/storage-account-name', variables('keyVaultName'))]",
+      "properties": {
+        "value": "[variables('storageAccountName')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'keyvault')]"
+      ]
+    },
+    {
+      "condition": "[parameters('deployVnet')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "vnet",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
         },
-        "enableRbacAuthorization": false,
-        "enabledForDeployment": false,
-        "enabledForDiskEncryption": false,
-        "enabledForTemplateDeployment": true,
-        "enableSoftDelete": true,
-        "softDeleteRetentionInDays": 90,
-        "publicNetworkAccess": "Enabled",
-        "networkAcls": {
-          "bypass": "AzureServices",
-          "defaultAction": "Allow",
-          "ipRules": [],
-          "virtualNetworkRules": []
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[variables('vnetName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "addressPrefix": {
+            "value": "[parameters('vnetAddressPrefix')]"
+          },
+          "deployDnsResolverSubnets": {
+            "value": "[parameters('deployDnsResolverSubnets')]"
+          }
         },
-        "accessPolicies": [
-          {
-            "tenantId": "[subscription().tenantId]",
-            "objectId": "[parameters('keyVaultAdminObjectId')]",
-            "permissions": {
-              "secrets": [
-                "get",
-                "list",
-                "set",
-                "delete"
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "15761265093769164901"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Virtual Network name"
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "addressPrefix": {
+              "type": "string",
+              "defaultValue": "10.0.0.0/22",
+              "metadata": {
+                "description": "VNet address space (CIDR)"
+              }
+            },
+            "deployDnsResolverSubnets": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Deploy optional Azure DNS Private Resolver subnets"
+              }
+            },
+            "snetPrivateEndpointsPrefix": {
+              "type": "string",
+              "defaultValue": "10.0.0.0/27",
+              "metadata": {
+                "description": "Subnet CIDR for Private Endpoints"
+              }
+            },
+            "snetServiceBusPrefix": {
+              "type": "string",
+              "defaultValue": "10.0.0.64/26",
+              "metadata": {
+                "description": "Subnet CIDR for Service Bus workload"
+              }
+            },
+            "snetKeyVaultPrefix": {
+              "type": "string",
+              "defaultValue": "10.0.0.128/26",
+              "metadata": {
+                "description": "Subnet CIDR for Key Vault workload"
+              }
+            },
+            "snetStoragePrefix": {
+              "type": "string",
+              "defaultValue": "10.0.0.192/26",
+              "metadata": {
+                "description": "Subnet CIDR for Storage workload"
+              }
+            },
+            "snetDnsInboundPrefix": {
+              "type": "string",
+              "defaultValue": "10.0.1.0/28",
+              "metadata": {
+                "description": "Subnet CIDR for DNS Private Resolver inbound endpoint (optional)"
+              }
+            },
+            "snetDnsOutboundPrefix": {
+              "type": "string",
+              "defaultValue": "10.0.1.16/28",
+              "metadata": {
+                "description": "Subnet CIDR for DNS Private Resolver outbound endpoint (optional)"
+              }
+            }
+          },
+          "variables": {
+            "requiredSubnets": [
+              {
+                "name": "snet-private-endpoints",
+                "properties": {
+                  "addressPrefix": "[parameters('snetPrivateEndpointsPrefix')]",
+                  "privateEndpointNetworkPolicies": "Disabled"
+                }
+              },
+              {
+                "name": "snet-servicebus",
+                "properties": {
+                  "addressPrefix": "[parameters('snetServiceBusPrefix')]"
+                }
+              },
+              {
+                "name": "snet-keyvault",
+                "properties": {
+                  "addressPrefix": "[parameters('snetKeyVaultPrefix')]"
+                }
+              },
+              {
+                "name": "snet-storage",
+                "properties": {
+                  "addressPrefix": "[parameters('snetStoragePrefix')]"
+                }
+              }
+            ],
+            "dnsSubnets": "[if(parameters('deployDnsResolverSubnets'), createArray(createObject('name', 'snet-dns-inbound', 'properties', createObject('addressPrefix', parameters('snetDnsInboundPrefix'), 'delegations', createArray(createObject('name', 'Microsoft.Network.dnsResolvers', 'properties', createObject('serviceName', 'Microsoft.Network/dnsResolvers'))))), createObject('name', 'snet-dns-outbound', 'properties', createObject('addressPrefix', parameters('snetDnsOutboundPrefix'), 'delegations', createArray(createObject('name', 'Microsoft.Network.dnsResolvers', 'properties', createObject('serviceName', 'Microsoft.Network/dnsResolvers')))))), createArray())]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/virtualNetworks",
+              "apiVersion": "2024-05-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "addressSpace": {
+                  "addressPrefixes": [
+                    "[parameters('addressPrefix')]"
+                  ]
+                },
+                "subnets": "[concat(variables('requiredSubnets'), variables('dnsSubnets'))]"
+              }
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/virtualNetworks', parameters('name'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            },
+            "privateEndpointsSubnetId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('name')), '2024-05-01').subnets[0].id]"
+            },
+            "serviceBusSubnetId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('name')), '2024-05-01').subnets[1].id]"
+            },
+            "keyVaultSubnetId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('name')), '2024-05-01').subnets[2].id]"
+            },
+            "storageSubnetId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('name')), '2024-05-01').subnets[3].id]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "loganalytics",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[variables('logAnalyticsName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "10811902194391910886"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Log Analytics workspace name"
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.OperationalInsights/workspaces",
+              "apiVersion": "2022-10-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "sku": {
+                  "name": "PerGB2018"
+                },
+                "retentionInDays": 30
+              }
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('name'))]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "servicebus",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "namespaceName": {
+            "value": "[variables('serviceBusNamespaceName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "6860838106181327474"
+            }
+          },
+          "parameters": {
+            "namespaceName": {
+              "type": "string",
+              "metadata": {
+                "description": "Service Bus namespace name"
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "queueNames": {
+              "type": "array",
+              "defaultValue": [
+                "inbound",
+                "outbound",
+                "errors"
               ],
-              "keys": [],
-              "certificates": [],
-              "storage": []
+              "metadata": {
+                "description": "Queue names to create"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.ServiceBus/namespaces",
+              "apiVersion": "2022-10-01-preview",
+              "name": "[parameters('namespaceName')]",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "Basic",
+                "tier": "Basic"
+              },
+              "properties": {}
+            },
+            {
+              "copy": {
+                "name": "queues",
+                "count": "[length(parameters('queueNames'))]"
+              },
+              "type": "Microsoft.ServiceBus/namespaces/queues",
+              "apiVersion": "2022-10-01-preview",
+              "name": "[format('{0}/{1}', parameters('namespaceName'), parameters('queueNames')[copyIndex()])]",
+              "properties": {
+                "lockDuration": "PT1M",
+                "maxSizeInMegabytes": 1024,
+                "defaultMessageTimeToLive": "P14D",
+                "deadLetteringOnMessageExpiration": true
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ServiceBus/namespaces', parameters('namespaceName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.ServiceBus/namespaces/AuthorizationRules",
+              "apiVersion": "2022-10-01-preview",
+              "name": "[format('{0}/{1}', parameters('namespaceName'), 'logicapps-dev')]",
+              "properties": {
+                "rights": [
+                  "Manage",
+                  "Send",
+                  "Listen"
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ServiceBus/namespaces', parameters('namespaceName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "namespaceId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.ServiceBus/namespaces', parameters('namespaceName'))]"
+            },
+            "authRuleId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.ServiceBus/namespaces/AuthorizationRules', parameters('namespaceName'), 'logicapps-dev')]"
             }
           }
-        ]
+        }
       }
     },
     {
-      "type": "Microsoft.KeyVault/vaults/secrets",
-      "apiVersion": "2025-05-01",
-      "name": "[format('{0}/{1}', variables('keyVaultName'), 'storage-account-name')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
-      ],
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "storage",
       "properties": {
-        "value": "[variables('storageAccountName')]",
-        "contentType": "text/plain"
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[variables('storageAccountName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "10234272970763386625"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Storage account name (must be 3-24 chars, lowercase letters/numbers only)"
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "containers": {
+              "type": "array",
+              "defaultValue": [
+                "xml-store",
+                "audit"
+              ],
+              "metadata": {
+                "description": "Create these blob containers"
+              }
+            },
+            "fileShares": {
+              "type": "array",
+              "defaultValue": [
+                "drop",
+                "pickup"
+              ],
+              "metadata": {
+                "description": "Create these file shares"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Storage/storageAccounts",
+              "apiVersion": "2025-06-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "kind": "StorageV2",
+              "sku": {
+                "name": "Standard_LRS"
+              },
+              "properties": {
+                "isHnsEnabled": true,
+                "minimumTlsVersion": "TLS1_2",
+                "allowBlobPublicAccess": false,
+                "supportsHttpsTrafficOnly": true
+              }
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/blobServices",
+              "apiVersion": "2025-06-01",
+              "name": "[format('{0}/default', parameters('name'))]",
+              "properties": {},
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('name'))]"
+              ]
+            },
+            {
+              "copy": {
+                "name": "blobContainers",
+                "count": "[length(parameters('containers'))]"
+              },
+              "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+              "apiVersion": "2025-06-01",
+              "name": "[format('{0}/default/{1}', parameters('name'), parameters('containers')[copyIndex()])]",
+              "properties": {
+                "publicAccess": "None"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/blobServices', split(format('{0}/default', parameters('name')), '/')[0], split(format('{0}/default', parameters('name')), '/')[1])]"
+              ]
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/fileServices",
+              "apiVersion": "2025-06-01",
+              "name": "[format('{0}/default', parameters('name'))]",
+              "properties": {},
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('name'))]"
+              ]
+            },
+            {
+              "copy": {
+                "name": "shares",
+                "count": "[length(parameters('fileShares'))]"
+              },
+              "type": "Microsoft.Storage/storageAccounts/fileServices/shares",
+              "apiVersion": "2025-06-01",
+              "name": "[format('{0}/default/{1}', parameters('name'), parameters('fileShares')[copyIndex()])]",
+              "properties": {
+                "enabledProtocols": "SMB",
+                "shareQuota": 1024
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/fileServices', split(format('{0}/default', parameters('name')), '/')[0], split(format('{0}/default', parameters('name')), '/')[1])]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Storage/storageAccounts', parameters('name'))]"
+            }
+          }
+        }
       }
     },
     {
-      "type": "Microsoft.KeyVault/vaults/secrets",
-      "apiVersion": "2025-05-01",
-      "name": "[format('{0}/{1}', variables('keyVaultName'), 'storage-account-key')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
-        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
-      ],
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "keyvault",
       "properties": {
-        "value": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2025-06-01').keys[0].value]",
-        "contentType": "text/plain"
-      }
-    },
-    {
-      "type": "Microsoft.KeyVault/vaults/secrets",
-      "apiVersion": "2025-05-01",
-      "name": "[format('{0}/{1}', variables('keyVaultName'), 'servicebus-connectionstring')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
-        "[resourceId('Microsoft.ServiceBus/namespaces/authorizationRules', variables('serviceBusNamespaceName'), 'logicapps-dev')]"
-      ],
-      "properties": {
-        "value": "[listKeys(resourceId('Microsoft.ServiceBus/namespaces/authorizationRules', variables('serviceBusNamespaceName'), 'logicapps-dev'), '2022-10-01-preview').primaryConnectionString]",
-        "contentType": "text/plain"
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[variables('keyVaultName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "tenantId": {
+            "value": "[subscription().tenantId]"
+          },
+          "adminObjectId": {
+            "value": "[parameters('keyVaultAdminObjectId')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "13168122991995034170"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Key Vault name. Must be 3-24 chars, start with a letter."
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "tenantId": {
+              "type": "string",
+              "metadata": {
+                "description": "Tenant ID (Microsoft Entra)"
+              }
+            },
+            "adminObjectId": {
+              "type": "string",
+              "metadata": {
+                "description": "Object ID (GUID) for a user or group granted secret permissions (DEV convenience)."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.KeyVault/vaults",
+              "apiVersion": "2025-05-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "tenantId": "[parameters('tenantId')]",
+                "sku": {
+                  "family": "A",
+                  "name": "standard"
+                },
+                "enableRbacAuthorization": false,
+                "enabledForDeployment": false,
+                "enabledForDiskEncryption": false,
+                "enabledForTemplateDeployment": true,
+                "enableSoftDelete": true,
+                "softDeleteRetentionInDays": 90,
+                "publicNetworkAccess": "Enabled",
+                "networkAcls": {
+                  "bypass": "AzureServices",
+                  "defaultAction": "Allow",
+                  "ipRules": [],
+                  "virtualNetworkRules": []
+                },
+                "accessPolicies": [
+                  {
+                    "tenantId": "[parameters('tenantId')]",
+                    "objectId": "[parameters('adminObjectId')]",
+                    "permissions": {
+                      "secrets": [
+                        "get",
+                        "list",
+                        "set",
+                        "delete"
+                      ],
+                      "keys": [],
+                      "certificates": [],
+                      "storage": []
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.KeyVault/vaults', parameters('name'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            }
+          }
+        }
       }
     },
     {
       "condition": "[parameters('deployIntegrationAccount')]",
-      "type": "Microsoft.Logic/integrationAccounts",
-      "apiVersion": "2019-05-01",
-      "name": "[variables('integrationAccountName')]",
-      "location": "[parameters('location')]",
-      "sku": {
-        "name": "[parameters('integrationAccountSku')]"
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "integrationAccount",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[variables('integrationAccountName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "skuName": {
+            "value": "[parameters('integrationAccountSku')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "7194783542744832592"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the Integration Account."
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region for the Integration Account. Must match the region of Logic Apps that will link to it."
+              }
+            },
+            "skuName": {
+              "type": "string",
+              "defaultValue": "Basic",
+              "allowedValues": [
+                "Free",
+                "Basic",
+                "Standard"
+              ],
+              "metadata": {
+                "description": "Integration Account pricing tier."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Logic/integrationAccounts",
+              "apiVersion": "2019-05-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "[parameters('skuName')]"
+              },
+              "properties": {}
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Logic/integrationAccounts', parameters('name'))]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "helloWorld",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "logicAppName": {
+            "value": "[variables('logicAppName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "storageAccountName": {
+            "value": "[variables('storageAccountName')]"
+          },
+          "storageAccountAccessKey": {
+            "value": "[listKeys(variables('storageAccountId'), '2025-06-01').keys[0].value]"
+          },
+          "blobContainerName": {
+            "value": "xml-store"
+          },
+          "serviceBusConnectionString": {
+            "value": "[listKeys(variables('serviceBusAuthRuleId'), '2022-10-01-preview').primaryConnectionString]"
+          },
+          "serviceBusQueueName": {
+            "value": "inbound"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "1456438333300897955"
+            }
+          },
+          "parameters": {
+            "logicAppName": {
+              "type": "string",
+              "metadata": {
+                "description": "Logic App (Consumption) name."
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region for deployment (e.g., eastus, westus2)."
+              }
+            },
+            "storageAccountName": {
+              "type": "string",
+              "metadata": {
+                "description": "Storage account name used for the XML/audit store."
+              }
+            },
+            "storageAccountAccessKey": {
+              "type": "securestring",
+              "metadata": {
+                "description": "Storage account access key."
+              }
+            },
+            "blobContainerName": {
+              "type": "string",
+              "defaultValue": "xml-store",
+              "metadata": {
+                "description": "Blob container used for the XML/audit store."
+              }
+            },
+            "serviceBusConnectionString": {
+              "type": "securestring",
+              "metadata": {
+                "description": "Service Bus namespace connection string."
+              }
+            },
+            "serviceBusQueueName": {
+              "type": "string",
+              "defaultValue": "inbound",
+              "metadata": {
+                "description": "Service Bus queue name that receives messages."
+              }
+            },
+            "azureBlobConnectionName": {
+              "type": "string",
+              "defaultValue": "azureblob",
+              "metadata": {
+                "description": "Azure Blob API connection resource name."
+              }
+            },
+            "serviceBusConnectionName": {
+              "type": "string",
+              "defaultValue": "servicebus",
+              "metadata": {
+                "description": "Service Bus API connection resource name."
+              }
+            }
+          },
+          "variables": {
+            "azureBlobManagedApiId": "[subscriptionResourceId('Microsoft.Web/locations/managedApis', parameters('location'), 'azureblob')]",
+            "serviceBusManagedApiId": "[subscriptionResourceId('Microsoft.Web/locations/managedApis', parameters('location'), 'servicebus')]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Web/connections",
+              "apiVersion": "2016-06-01",
+              "name": "[parameters('azureBlobConnectionName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "displayName": "[parameters('azureBlobConnectionName')]",
+                "api": {
+                  "id": "[variables('azureBlobManagedApiId')]"
+                },
+                "parameterValues": {
+                  "accountName": "[parameters('storageAccountName')]",
+                  "accessKey": "[parameters('storageAccountAccessKey')]"
+                }
+              }
+            },
+            {
+              "type": "Microsoft.Web/connections",
+              "apiVersion": "2016-06-01",
+              "name": "[parameters('serviceBusConnectionName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "displayName": "[parameters('serviceBusConnectionName')]",
+                "api": {
+                  "id": "[variables('serviceBusManagedApiId')]"
+                },
+                "parameterValues": {
+                  "connectionString": "[parameters('serviceBusConnectionString')]"
+                }
+              }
+            },
+            {
+              "type": "Microsoft.Logic/workflows",
+              "apiVersion": "2019-05-01",
+              "name": "[parameters('logicAppName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "state": "Enabled",
+                "definition": {
+                  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                  "contentVersion": "1.0.0.0",
+                  "parameters": {
+                    "$connections": {
+                      "type": "Object",
+                      "defaultValue": {}
+                    }
+                  },
+                  "triggers": {
+                    "When_a_HTTP_request_is_received": {
+                      "type": "Request",
+                      "kind": "Http",
+                      "inputs": {
+                        "method": "POST"
+                      }
+                    }
+                  },
+                  "actions": {
+                    "CorrelationId": {
+                      "type": "Compose",
+                      "inputs": "@{guid()}"
+                    },
+                    "Ensure_XML_ContentType": {
+                      "type": "If",
+                      "runAfter": {
+                        "CorrelationId": [
+                          "Succeeded"
+                        ]
+                      },
+                      "expression": {
+                        "or": [
+                          {
+                            "contains": [
+                              "@{toLower(coalesce(triggerOutputs()?['headers']?['Content-Type'], ''))}",
+                              "application/xml"
+                            ]
+                          },
+                          {
+                            "contains": [
+                              "@{toLower(coalesce(triggerOutputs()?['headers']?['Content-Type'], ''))}",
+                              "text/xml"
+                            ]
+                          }
+                        ]
+                      },
+                      "actions": {
+                        "Write_request_to_ADLS_Gen2_as_blob": {
+                          "type": "ApiConnection",
+                          "inputs": {
+                            "body": "@{triggerBody()}",
+                            "host": {
+                              "connection": {
+                                "name": "@parameters('$connections')['azureblob']['connectionId']"
+                              }
+                            },
+                            "method": "post",
+                            "path": "/datasets/default/files",
+                            "queries": {
+                              "folderPath": "[format('@{{concat(''/'', encodeURIComponent(''{0}''))}}', parameters('blobContainerName'))]",
+                              "name": "@{concat('message-', outputs('CorrelationId'), '.xml')}",
+                              "queryParametersSingleEncoded": true
+                            },
+                            "runtimeConfiguration": {
+                              "contentTransfer": {
+                                "transferMode": "Chunked"
+                              }
+                            }
+                          }
+                        },
+                        "Send_message_to_ServiceBus_queue": {
+                          "type": "ApiConnection",
+                          "runAfter": {
+                            "Write_request_to_ADLS_Gen2_as_blob": [
+                              "Succeeded"
+                            ]
+                          },
+                          "inputs": {
+                            "body": {
+                              "ContentData": "@{encodeBase64(triggerBody())}",
+                              "CorrelationId": "@{outputs('CorrelationId')}"
+                            },
+                            "host": {
+                              "connection": {
+                                "name": "@parameters('$connections')['servicebus']['connectionId']"
+                              }
+                            },
+                            "method": "post",
+                            "path": "[format('/@{{encodeURIComponent(''{0}'')}}/messages', parameters('serviceBusQueueName'))]"
+                          }
+                        },
+                        "Response_OK": {
+                          "type": "Response",
+                          "runAfter": {
+                            "Send_message_to_ServiceBus_queue": [
+                              "Succeeded"
+                            ]
+                          },
+                          "inputs": {
+                            "statusCode": 200,
+                            "body": {
+                              "message": "Hello from the Azure Integration Modernization Accelerator",
+                              "correlationId": "@{outputs('CorrelationId')}",
+                              "storedIn": "[parameters('blobContainerName')]",
+                              "queuedTo": "[parameters('serviceBusQueueName')]"
+                            }
+                          }
+                        }
+                      },
+                      "else": {
+                        "actions": {
+                          "Response_Unsupported_Media_Type": {
+                            "type": "Response",
+                            "inputs": {
+                              "statusCode": 415,
+                              "body": {
+                                "message": "Unsupported Media Type. Send XML with Content-Type application/xml or text/xml.",
+                                "correlationId": "@{outputs('CorrelationId')}"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "outputs": {}
+                },
+                "parameters": {
+                  "$connections": {
+                    "value": {
+                      "azureblob": {
+                        "connectionId": "[resourceId('Microsoft.Web/connections', parameters('azureBlobConnectionName'))]",
+                        "connectionName": "[parameters('azureBlobConnectionName')]",
+                        "id": "[variables('azureBlobManagedApiId')]"
+                      },
+                      "servicebus": {
+                        "connectionId": "[resourceId('Microsoft.Web/connections', parameters('serviceBusConnectionName'))]",
+                        "connectionName": "[parameters('serviceBusConnectionName')]",
+                        "id": "[variables('serviceBusManagedApiId')]"
+                      }
+                    }
+                  }
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/connections', parameters('azureBlobConnectionName'))]",
+                "[resourceId('Microsoft.Web/connections', parameters('serviceBusConnectionName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "logicAppId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Logic/workflows', parameters('logicAppName'))]"
+            }
+          }
+        }
       },
-      "properties": {}
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'servicebus')]",
+        "[resourceId('Microsoft.Resources/deployments', 'storage')]"
+      ]
     },
     {
-      "condition": "[parameters('deployIntegrationAccount')]",
-      "type": "Microsoft.Logic/integrationAccounts/maps",
-      "apiVersion": "2019-05-01",
-      "name": "[format('{0}/{1}', variables('integrationAccountName'), variables('liquidMapName'))]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Logic/integrationAccounts', variables('integrationAccountName'))]"
-      ],
+      "condition": "[parameters('deployVnet')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "privateEndpoints",
       "properties": {
-        "mapType": "Liquid",
-        "contentType": "text/plain",
-        "content": "{  \"from\": \"{{ content.Hello.From }}\",  \"message\": \"{{ content.Hello.Message }}\"}\n"
-      }
-    },
-    {
-      "type": "Microsoft.Web/connections",
-      "apiVersion": "2016-06-01",
-      "name": "[variables('azureBlobConnectionName')]",
-      "location": "[parameters('location')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
-      ],
-      "properties": {
-        "displayName": "[variables('azureBlobConnectionName')]",
-        "api": {
-          "id": "[subscriptionResourceId('Microsoft.Web/locations/managedApis', parameters('location'), 'azureblob')]"
+        "expressionEvaluationOptions": {
+          "scope": "inner"
         },
-        "parameterValues": {
-          "accountName": "[variables('storageAccountName')]",
-          "accessKey": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2025-06-01').keys[0].value]"
-        }
-      }
-    },
-    {
-      "type": "Microsoft.Web/connections",
-      "apiVersion": "2016-06-01",
-      "name": "[variables('serviceBusConnectionName')]",
-      "location": "[parameters('location')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.ServiceBus/namespaces/authorizationRules', variables('serviceBusNamespaceName'), 'logicapps-dev')]"
-      ],
-      "properties": {
-        "displayName": "[variables('serviceBusConnectionName')]",
-        "api": {
-          "id": "[subscriptionResourceId('Microsoft.Web/locations/managedApis', parameters('location'), 'servicebus')]"
-        },
-        "parameterValues": {
-          "connectionString": "[listKeys(resourceId('Microsoft.ServiceBus/namespaces/authorizationRules', variables('serviceBusNamespaceName'), 'logicapps-dev'), '2022-10-01-preview').primaryConnectionString]"
-        }
-      }
-    },
-    {
-      "condition": "[not(parameters('deployIntegrationAccount'))]",
-      "type": "Microsoft.Logic/workflows",
-      "apiVersion": "2019-05-01",
-      "name": "[variables('logicAppName')]",
-      "location": "[parameters('location')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Web/connections', variables('azureBlobConnectionName'))]",
-        "[resourceId('Microsoft.Web/connections', variables('serviceBusConnectionName'))]",
-        "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', variables('storageAccountName'), 'default', variables('blobContainerName'))]",
-        "[resourceId('Microsoft.ServiceBus/namespaces/queues', variables('serviceBusNamespaceName'), variables('serviceBusQueueName'))]"
-      ],
-      "properties": {
-        "state": "Enabled",
-        "definition": {
-          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
-          "contentVersion": "1.0.0.0",
-          "parameters": {
-            "$connections": {
-              "type": "Object",
-              "defaultValue": {}
-            }
-          },
-          "triggers": {
-            "When_a_HTTP_request_is_received": {
-              "type": "Request",
-              "kind": "Http",
-              "inputs": {
-                "method": "POST"
-              }
-            }
-          },
-          "actions": {
-            "CorrelationId": {
-              "type": "Compose",
-              "inputs": "@{guid()}"
-            },
-            "Ensure_XML_ContentType": {
-              "type": "If",
-              "runAfter": {
-                "CorrelationId": [
-                  "Succeeded"
-                ]
-              },
-              "expression": {
-                "or": [
-                  {
-                    "contains": [
-                      "@{toLower(coalesce(triggerOutputs()?['headers']?['Content-Type'], ''))}",
-                      "application/xml"
-                    ]
-                  },
-                  {
-                    "contains": [
-                      "@{toLower(coalesce(triggerOutputs()?['headers']?['Content-Type'], ''))}",
-                      "text/xml"
-                    ]
-                  }
-                ]
-              },
-              "actions": {
-                "Write_request_to_ADLS_Gen2_as_blob": {
-                  "type": "ApiConnection",
-                  "inputs": {
-                    "body": "@{triggerBody()}",
-                    "host": {
-                      "connection": {
-                        "name": "@parameters('$connections')['azureblob']['connectionId']"
-                      }
-                    },
-                    "method": "post",
-                    "path": "/datasets/default/files",
-                    "queries": {
-                      "folderPath": "@{concat('/', encodeURIComponent('xml-store'))}",
-                      "name": "@{concat('hello-', outputs('CorrelationId'), '.xml')}",
-                      "queryParametersSingleEncoded": true
-                    },
-                    "runtimeConfiguration": {
-                      "contentTransfer": {
-                        "transferMode": "Chunked"
-                      }
-                    }
-                  }
-                },
-                "Send_message_to_ServiceBus_queue": {
-                  "type": "ApiConnection",
-                  "runAfter": {
-                    "Write_request_to_ADLS_Gen2_as_blob": [
-                      "Succeeded"
-                    ]
-                  },
-                  "inputs": {
-                    "body": {
-                      "ContentData": "@{encodeBase64(triggerBody())}",
-                      "CorrelationId": "@{outputs('CorrelationId')}"
-                    },
-                    "host": {
-                      "connection": {
-                        "name": "@parameters('$connections')['servicebus']['connectionId']"
-                      }
-                    },
-                    "method": "post",
-                    "path": "/@{encodeURIComponent('inbound')}/messages"
-                  }
-                },
-                "Response_OK": {
-                  "type": "Response",
-                  "runAfter": {
-                    "Send_message_to_ServiceBus_queue": [
-                      "Succeeded"
-                    ]
-                  },
-                  "inputs": {
-                    "statusCode": 200,
-                    "body": {
-                      "message": "Hello from AIS BizTalk Accelerator (DEV)",
-                      "correlationId": "@{outputs('CorrelationId')}",
-                      "storedIn": "xml-store",
-                      "queuedTo": "inbound"
-                    }
-                  }
-                }
-              },
-              "else": {
-                "actions": {
-                  "Response_Unsupported_Media_Type": {
-                    "type": "Response",
-                    "inputs": {
-                      "statusCode": 415,
-                      "body": {
-                        "message": "Unsupported Media Type. Send XML with Content-Type application/xml or text/xml.",
-                        "correlationId": "@{outputs('CorrelationId')}"
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "outputs": {}
-        },
+        "mode": "Incremental",
         "parameters": {
-          "$connections": {
-            "value": {
-              "azureblob": {
-                "connectionId": "[resourceId('Microsoft.Web/connections', variables('azureBlobConnectionName'))]",
-                "connectionName": "[variables('azureBlobConnectionName')]",
-                "id": "[subscriptionResourceId('Microsoft.Web/locations/managedApis', parameters('location'), 'azureblob')]"
-              },
-              "servicebus": {
-                "connectionId": "[resourceId('Microsoft.Web/connections', variables('serviceBusConnectionName'))]",
-                "connectionName": "[variables('serviceBusConnectionName')]",
-                "id": "[subscriptionResourceId('Microsoft.Web/locations/managedApis', parameters('location'), 'servicebus')]"
-              }
-            }
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "privateEndpointsSubnetId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'vnet'), '2025-04-01').outputs.privateEndpointsSubnetId.value]"
+          },
+          "vnetId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'vnet'), '2025-04-01').outputs.id.value]"
+          },
+          "vnetName": {
+            "value": "[variables('vnetName')]"
+          },
+          "storageAccountId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage'), '2025-04-01').outputs.id.value]"
+          },
+          "storageAccountName": {
+            "value": "[variables('storageAccountName')]"
+          },
+          "keyVaultId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault'), '2025-04-01').outputs.id.value]"
+          },
+          "keyVaultName": {
+            "value": "[variables('keyVaultName')]"
           }
-        }
-      }
-    },
-    {
-      "condition": "[parameters('deployIntegrationAccount')]",
-      "type": "Microsoft.Logic/workflows",
-      "apiVersion": "2019-05-01",
-      "name": "[variables('logicAppName')]",
-      "location": "[parameters('location')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Web/connections', variables('azureBlobConnectionName'))]",
-        "[resourceId('Microsoft.Web/connections', variables('serviceBusConnectionName'))]",
-        "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', variables('storageAccountName'), 'default', variables('blobContainerName'))]",
-        "[resourceId('Microsoft.ServiceBus/namespaces/queues', variables('serviceBusNamespaceName'), variables('serviceBusQueueName'))]",
-        "[resourceId('Microsoft.Logic/integrationAccounts', variables('integrationAccountName'))]"
-      ],
-      "properties": {
-        "state": "Enabled",
-        "definition": {
-          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
           "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "16026072805973195274"
+            }
+          },
           "parameters": {
-            "$connections": {
-              "type": "Object",
-              "defaultValue": {}
-            }
-          },
-          "triggers": {
-            "When_a_HTTP_request_is_received": {
-              "type": "Request",
-              "kind": "Http",
-              "inputs": {
-                "method": "POST"
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region for all resources."
               }
-            }
-          },
-          "actions": {
-            "CorrelationId": {
-              "type": "Compose",
-              "inputs": "@{guid()}"
             },
-            "Ensure_XML_ContentType": {
-              "type": "If",
-              "runAfter": {
-                "CorrelationId": [
-                  "Succeeded"
-                ]
-              },
-              "expression": {
-                "or": [
-                  {
-                    "contains": [
-                      "@{toLower(coalesce(triggerOutputs()?['headers']?['Content-Type'], ''))}",
-                      "application/xml"
-                    ]
-                  },
-                  {
-                    "contains": [
-                      "@{toLower(coalesce(triggerOutputs()?['headers']?['Content-Type'], ''))}",
-                      "text/xml"
-                    ]
-                  }
-                ]
-              },
-              "actions": {
-                "Write_request_to_ADLS_Gen2_as_blob": {
-                  "type": "ApiConnection",
-                  "inputs": {
-                    "body": "@{triggerBody()}",
-                    "host": {
-                      "connection": {
-                        "name": "@parameters('$connections')['azureblob']['connectionId']"
-                      }
-                    },
-                    "method": "post",
-                    "path": "/datasets/default/files",
-                    "queries": {
-                      "folderPath": "@{concat('/', encodeURIComponent('xml-store'))}",
-                      "name": "@{concat('hello-', outputs('CorrelationId'), '.xml')}",
-                      "queryParametersSingleEncoded": true
-                    },
-                    "runtimeConfiguration": {
-                      "contentTransfer": {
-                        "transferMode": "Chunked"
-                      }
-                    }
-                  }
-                },
-                "Send_message_to_ServiceBus_queue": {
-                  "type": "ApiConnection",
-                  "runAfter": {
-                    "Write_request_to_ADLS_Gen2_as_blob": [
-                      "Succeeded"
-                    ]
-                  },
-                  "inputs": {
-                    "body": {
-                      "ContentData": "@{encodeBase64(triggerBody())}",
-                      "CorrelationId": "@{outputs('CorrelationId')}"
-                    },
-                    "host": {
-                      "connection": {
-                        "name": "@parameters('$connections')['servicebus']['connectionId']"
-                      }
-                    },
-                    "method": "post",
-                    "path": "/@{encodeURIComponent('inbound')}/messages"
-                  }
-                },
-                "Response_OK": {
-                  "type": "Response",
-                  "runAfter": {
-                    "Send_message_to_ServiceBus_queue": [
-                      "Succeeded"
-                    ]
-                  },
-                  "inputs": {
-                    "statusCode": 200,
-                    "body": {
-                      "message": "Hello from AIS BizTalk Accelerator (DEV)",
-                      "correlationId": "@{outputs('CorrelationId')}",
-                      "storedIn": "xml-store",
-                      "queuedTo": "inbound"
-                    }
-                  }
-                }
-              },
-              "else": {
-                "actions": {
-                  "Response_Unsupported_Media_Type": {
-                    "type": "Response",
-                    "inputs": {
-                      "statusCode": 415,
-                      "body": {
-                        "message": "Unsupported Media Type. Send XML with Content-Type application/xml or text/xml.",
-                        "correlationId": "@{outputs('CorrelationId')}"
-                      }
-                    }
-                  }
-                }
+            "privateEndpointsSubnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the snet-private-endpoints subnet."
               }
-            }
-          },
-          "outputs": {}
-        },
-        "parameters": {
-          "$connections": {
-            "value": {
-              "azureblob": {
-                "connectionId": "[resourceId('Microsoft.Web/connections', variables('azureBlobConnectionName'))]",
-                "connectionName": "[variables('azureBlobConnectionName')]",
-                "id": "[subscriptionResourceId('Microsoft.Web/locations/managedApis', parameters('location'), 'azureblob')]"
-              },
-              "servicebus": {
-                "connectionId": "[resourceId('Microsoft.Web/connections', variables('serviceBusConnectionName'))]",
-                "connectionName": "[variables('serviceBusConnectionName')]",
-                "id": "[subscriptionResourceId('Microsoft.Web/locations/managedApis', parameters('location'), 'servicebus')]"
-              }
-            }
-          }
-        },
-        "integrationAccount": {
-          "id": "[resourceId('Microsoft.Logic/integrationAccounts', variables('integrationAccountName'))]"
-        }
-      }
-    },
-    {
-      "condition": "[parameters('deployIntegrationAccount')]",
-      "type": "Microsoft.Logic/workflows",
-      "apiVersion": "2019-05-01",
-      "name": "[variables('liquidLogicAppName')]",
-      "location": "[parameters('location')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Logic/integrationAccounts', variables('integrationAccountName'))]",
-        "[resourceId('Microsoft.Logic/integrationAccounts/maps', variables('integrationAccountName'), variables('liquidMapName'))]"
-      ],
-      "properties": {
-        "state": "Enabled",
-        "integrationAccount": {
-          "id": "[resourceId('Microsoft.Logic/integrationAccounts', variables('integrationAccountName'))]"
-        },
-        "definition": {
-          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
-          "contentVersion": "1.0.0.0",
-          "triggers": {
-            "When_a_HTTP_request_is_received": {
-              "type": "Request",
-              "kind": "Http",
-              "inputs": {
-                "method": "POST"
-              }
-            }
-          },
-          "actions": {
-            "Transform_XML_To_JSON": {
-              "type": "Liquid",
-              "kind": "XmlToJson",
-              "inputs": {
-                "content": "@triggerBody()",
-                "integrationAccount": {
-                  "map": {
-                    "name": "[variables('liquidMapName')]"
-                  }
-                }
-              },
-              "runAfter": {}
             },
-            "Response": {
-              "type": "Response",
-              "runAfter": {
-                "Transform_XML_To_JSON": [
-                  "Succeeded"
-                ]
-              },
-              "inputs": {
-                "statusCode": 200,
-                "headers": {
-                  "Content-Type": "application/json"
-                },
-                "body": "@body('Transform_XML_To_JSON')"
+            "vnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the VNet (used for DNS zone links)."
+              }
+            },
+            "vnetName": {
+              "type": "string",
+              "metadata": {
+                "description": "VNet name (used for DNS zone virtual-network-link naming)."
+              }
+            },
+            "storageAccountId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the Storage Account."
+              }
+            },
+            "storageAccountName": {
+              "type": "string",
+              "metadata": {
+                "description": "Storage Account name (used in PE naming)."
+              }
+            },
+            "keyVaultId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the Key Vault."
+              }
+            },
+            "keyVaultName": {
+              "type": "string",
+              "metadata": {
+                "description": "Key Vault name (used in PE naming)."
               }
             }
           },
-          "outputs": {},
-          "parameters": {
-            "$connections": {
-              "type": "Object",
-              "defaultValue": {}
+          "resources": [
+            {
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "privatelink.blob.core.windows.net",
+              "location": "global"
+            },
+            {
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "privatelink.file.core.windows.net",
+              "location": "global"
+            },
+            {
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "privatelink.vaultcore.azure.net",
+              "location": "global"
+            },
+            {
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', 'privatelink.blob.core.windows.net', format('{0}-blob', parameters('vnetName')))]",
+              "location": "global",
+              "properties": {
+                "virtualNetwork": {
+                  "id": "[parameters('vnetId')]"
+                },
+                "registrationEnabled": false
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.blob.core.windows.net')]"
+              ]
+            },
+            {
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', 'privatelink.file.core.windows.net', format('{0}-file', parameters('vnetName')))]",
+              "location": "global",
+              "properties": {
+                "virtualNetwork": {
+                  "id": "[parameters('vnetId')]"
+                },
+                "registrationEnabled": false
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.file.core.windows.net')]"
+              ]
+            },
+            {
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', 'privatelink.vaultcore.azure.net', format('{0}-vault', parameters('vnetName')))]",
+              "location": "global",
+              "properties": {
+                "virtualNetwork": {
+                  "id": "[parameters('vnetId')]"
+                },
+                "registrationEnabled": false
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.vaultcore.azure.net')]"
+              ]
+            },
+            {
+              "type": "Microsoft.Network/privateEndpoints",
+              "apiVersion": "2024-05-01",
+              "name": "[format('pe-{0}-blob', parameters('storageAccountName'))]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "subnet": {
+                  "id": "[parameters('privateEndpointsSubnetId')]"
+                },
+                "privateLinkServiceConnections": [
+                  {
+                    "name": "[format('pe-{0}-blob', parameters('storageAccountName'))]",
+                    "properties": {
+                      "privateLinkServiceId": "[parameters('storageAccountId')]",
+                      "groupIds": [
+                        "blob"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Network/privateEndpoints",
+              "apiVersion": "2024-05-01",
+              "name": "[format('pe-{0}-file', parameters('storageAccountName'))]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "subnet": {
+                  "id": "[parameters('privateEndpointsSubnetId')]"
+                },
+                "privateLinkServiceConnections": [
+                  {
+                    "name": "[format('pe-{0}-file', parameters('storageAccountName'))]",
+                    "properties": {
+                      "privateLinkServiceId": "[parameters('storageAccountId')]",
+                      "groupIds": [
+                        "file"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Network/privateEndpoints",
+              "apiVersion": "2024-05-01",
+              "name": "[format('pe-{0}', parameters('keyVaultName'))]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "subnet": {
+                  "id": "[parameters('privateEndpointsSubnetId')]"
+                },
+                "privateLinkServiceConnections": [
+                  {
+                    "name": "[format('pe-{0}', parameters('keyVaultName'))]",
+                    "properties": {
+                      "privateLinkServiceId": "[parameters('keyVaultId')]",
+                      "groupIds": [
+                        "vault"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', format('pe-{0}-blob', parameters('storageAccountName')), 'default')]",
+              "properties": {
+                "privateDnsZoneConfigs": [
+                  {
+                    "name": "blob",
+                    "properties": {
+                      "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.blob.core.windows.net')]"
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.blob.core.windows.net')]",
+                "[resourceId('Microsoft.Network/privateEndpoints', format('pe-{0}-blob', parameters('storageAccountName')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', format('pe-{0}-file', parameters('storageAccountName')), 'default')]",
+              "properties": {
+                "privateDnsZoneConfigs": [
+                  {
+                    "name": "file",
+                    "properties": {
+                      "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.file.core.windows.net')]"
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.file.core.windows.net')]",
+                "[resourceId('Microsoft.Network/privateEndpoints', format('pe-{0}-file', parameters('storageAccountName')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', format('pe-{0}', parameters('keyVaultName')), 'default')]",
+              "properties": {
+                "privateDnsZoneConfigs": [
+                  {
+                    "name": "vault",
+                    "properties": {
+                      "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.vaultcore.azure.net')]"
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.vaultcore.azure.net')]",
+                "[resourceId('Microsoft.Network/privateEndpoints', format('pe-{0}', parameters('keyVaultName')))]"
+              ]
             }
-          }
-        },
-        "parameters": {
-          "$connections": {
-            "value": {}
-          }
+          ]
         }
-      }
-    },
-    {
-      "condition": "[parameters('deployVnet')]",
-      "type": "Microsoft.Network/privateDnsZones",
-      "apiVersion": "2024-06-01",
-      "name": "privatelink.servicebus.windows.net",
-      "location": "global",
+      },
       "dependsOn": [
-        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+        "[resourceId('Microsoft.Resources/deployments', 'keyvault')]",
+        "[resourceId('Microsoft.Resources/deployments', 'servicebus')]",
+        "[resourceId('Microsoft.Resources/deployments', 'storage')]",
+        "[resourceId('Microsoft.Resources/deployments', 'vnet')]"
       ]
-    },
-    {
-      "condition": "[parameters('deployVnet')]",
-      "type": "Microsoft.Network/privateDnsZones",
-      "apiVersion": "2024-06-01",
-      "name": "privatelink.blob.core.windows.net",
-      "location": "global",
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
-      ]
-    },
-    {
-      "condition": "[parameters('deployVnet')]",
-      "type": "Microsoft.Network/privateDnsZones",
-      "apiVersion": "2024-06-01",
-      "name": "privatelink.file.core.windows.net",
-      "location": "global",
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
-      ]
-    },
-    {
-      "condition": "[parameters('deployVnet')]",
-      "type": "Microsoft.Network/privateDnsZones",
-      "apiVersion": "2024-06-01",
-      "name": "privatelink.vaultcore.azure.net",
-      "location": "global",
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
-      ]
-    },
-    {
-      "condition": "[parameters('deployVnet')]",
-      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
-      "apiVersion": "2024-06-01",
-      "name": "[format('privatelink.servicebus.windows.net/{0}-servicebus', variables('vnetName'))]",
-      "location": "global",
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.servicebus.windows.net')]",
-        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
-      ],
-      "properties": {
-        "virtualNetwork": {
-          "id": "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
-        },
-        "registrationEnabled": false
-      }
-    },
-    {
-      "condition": "[parameters('deployVnet')]",
-      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
-      "apiVersion": "2024-06-01",
-      "name": "[format('privatelink.blob.core.windows.net/{0}-blob', variables('vnetName'))]",
-      "location": "global",
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.blob.core.windows.net')]",
-        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
-      ],
-      "properties": {
-        "virtualNetwork": {
-          "id": "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
-        },
-        "registrationEnabled": false
-      }
-    },
-    {
-      "condition": "[parameters('deployVnet')]",
-      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
-      "apiVersion": "2024-06-01",
-      "name": "[format('privatelink.file.core.windows.net/{0}-file', variables('vnetName'))]",
-      "location": "global",
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.file.core.windows.net')]",
-        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
-      ],
-      "properties": {
-        "virtualNetwork": {
-          "id": "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
-        },
-        "registrationEnabled": false
-      }
-    },
-    {
-      "condition": "[parameters('deployVnet')]",
-      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
-      "apiVersion": "2024-06-01",
-      "name": "[format('privatelink.vaultcore.azure.net/{0}-vault', variables('vnetName'))]",
-      "location": "global",
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.vaultcore.azure.net')]",
-        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
-      ],
-      "properties": {
-        "virtualNetwork": {
-          "id": "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
-        },
-        "registrationEnabled": false
-      }
-    },
-    {
-      "condition": "[parameters('deployVnet')]",
-      "type": "Microsoft.Network/privateEndpoints",
-      "apiVersion": "2024-05-01",
-      "name": "[format('pe-{0}', variables('serviceBusNamespaceName'))]",
-      "location": "[parameters('location')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]",
-        "[resourceId('Microsoft.ServiceBus/namespaces', variables('serviceBusNamespaceName'))]"
-      ],
-      "properties": {
-        "subnet": {
-          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), 'snet-private-endpoints')]"
-        },
-        "privateLinkServiceConnections": [
-          {
-            "name": "[format('pe-{0}', variables('serviceBusNamespaceName'))]",
-            "properties": {
-              "privateLinkServiceId": "[resourceId('Microsoft.ServiceBus/namespaces', variables('serviceBusNamespaceName'))]",
-              "groupIds": [ "namespace" ]
-            }
-          }
-        ]
-      }
-    },
-    {
-      "condition": "[parameters('deployVnet')]",
-      "type": "Microsoft.Network/privateEndpoints",
-      "apiVersion": "2024-05-01",
-      "name": "[format('pe-{0}-blob', variables('storageAccountName'))]",
-      "location": "[parameters('location')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]",
-        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
-      ],
-      "properties": {
-        "subnet": {
-          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), 'snet-private-endpoints')]"
-        },
-        "privateLinkServiceConnections": [
-          {
-            "name": "[format('pe-{0}-blob', variables('storageAccountName'))]",
-            "properties": {
-              "privateLinkServiceId": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
-              "groupIds": [ "blob" ]
-            }
-          }
-        ]
-      }
-    },
-    {
-      "condition": "[parameters('deployVnet')]",
-      "type": "Microsoft.Network/privateEndpoints",
-      "apiVersion": "2024-05-01",
-      "name": "[format('pe-{0}-file', variables('storageAccountName'))]",
-      "location": "[parameters('location')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]",
-        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
-      ],
-      "properties": {
-        "subnet": {
-          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), 'snet-private-endpoints')]"
-        },
-        "privateLinkServiceConnections": [
-          {
-            "name": "[format('pe-{0}-file', variables('storageAccountName'))]",
-            "properties": {
-              "privateLinkServiceId": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
-              "groupIds": [ "file" ]
-            }
-          }
-        ]
-      }
-    },
-    {
-      "condition": "[parameters('deployVnet')]",
-      "type": "Microsoft.Network/privateEndpoints",
-      "apiVersion": "2024-05-01",
-      "name": "[format('pe-{0}', variables('keyVaultName'))]",
-      "location": "[parameters('location')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]",
-        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
-      ],
-      "properties": {
-        "subnet": {
-          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), 'snet-private-endpoints')]"
-        },
-        "privateLinkServiceConnections": [
-          {
-            "name": "[format('pe-{0}', variables('keyVaultName'))]",
-            "properties": {
-              "privateLinkServiceId": "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
-              "groupIds": [ "vault" ]
-            }
-          }
-        ]
-      }
-    },
-    {
-      "condition": "[parameters('deployVnet')]",
-      "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
-      "apiVersion": "2024-05-01",
-      "name": "[format('pe-{0}/default', variables('serviceBusNamespaceName'))]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/privateEndpoints', format('pe-{0}', variables('serviceBusNamespaceName')))]",
-        "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.servicebus.windows.net')]"
-      ],
-      "properties": {
-        "privateDnsZoneConfigs": [
-          {
-            "name": "servicebus",
-            "properties": {
-              "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.servicebus.windows.net')]"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "condition": "[parameters('deployVnet')]",
-      "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
-      "apiVersion": "2024-05-01",
-      "name": "[format('pe-{0}-blob/default', variables('storageAccountName'))]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/privateEndpoints', format('pe-{0}-blob', variables('storageAccountName')))]",
-        "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.blob.core.windows.net')]"
-      ],
-      "properties": {
-        "privateDnsZoneConfigs": [
-          {
-            "name": "blob",
-            "properties": {
-              "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.blob.core.windows.net')]"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "condition": "[parameters('deployVnet')]",
-      "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
-      "apiVersion": "2024-05-01",
-      "name": "[format('pe-{0}-file/default', variables('storageAccountName'))]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/privateEndpoints', format('pe-{0}-file', variables('storageAccountName')))]",
-        "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.file.core.windows.net')]"
-      ],
-      "properties": {
-        "privateDnsZoneConfigs": [
-          {
-            "name": "file",
-            "properties": {
-              "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.file.core.windows.net')]"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "condition": "[parameters('deployVnet')]",
-      "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
-      "apiVersion": "2024-05-01",
-      "name": "[format('pe-{0}/default', variables('keyVaultName'))]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/privateEndpoints', format('pe-{0}', variables('keyVaultName')))]",
-        "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.vaultcore.azure.net')]"
-      ],
-      "properties": {
-        "privateDnsZoneConfigs": [
-          {
-            "name": "vault",
-            "properties": {
-              "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.vaultcore.azure.net')]"
-            }
-          }
-        ]
-      }
     }
   ],
   "outputs": {
-    "vnetName": {
-      "condition": "[parameters('deployVnet')]",
-      "type": "string",
-      "value": "[variables('vnetName')]"
-    },
-    "logicAppName": {
-      "type": "string",
-      "value": "[variables('logicAppName')]"
-    },
-    "liquidLogicAppName": {
-      "type": "string",
-      "value": "[variables('liquidLogicAppName')]"
-    },
-    "integrationAccountName": {
-      "type": "string",
-      "value": "[variables('integrationAccountName')]"
-    },
-    "keyVaultName": {
-      "type": "string",
-      "value": "[variables('keyVaultName')]"
+    "deployedNames": {
+      "type": "object",
+      "value": {
+        "keyVault": "[variables('keyVaultName')]",
+        "logicApp": "[variables('logicAppName')]",
+        "logAnalytics": "[variables('logAnalyticsName')]",
+        "serviceBusNamespace": "[variables('serviceBusNamespaceName')]",
+        "storageAccount": "[variables('storageAccountName')]",
+        "integrationAccount": "[if(parameters('deployIntegrationAccount'), variables('integrationAccountName'), '')]",
+        "vnet": "[if(parameters('deployVnet'), variables('vnetName'), '')]"
+      }
     }
   }
 }

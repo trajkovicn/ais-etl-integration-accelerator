@@ -4,27 +4,27 @@ param logicAppName string
 @description('Azure region for deployment (e.g., eastus, westus2).')
 param location string
 
-@description('Storage account name used for the XML/audit store (ADLS Gen2 is OK because it supports Blob API).')
+@description('Storage account name used for the XML/audit store.')
 param storageAccountName string
 
 @secure()
 @description('Storage account access key.')
 param storageAccountAccessKey string
 
-@description('Blob container used for XML/audit store.')
+@description('Blob container used for the XML/audit store.')
 param blobContainerName string = 'xml-store'
 
 @secure()
-@description('Service Bus namespace connection string (SAS policy connection string).')
+@description('Service Bus namespace connection string.')
 param serviceBusConnectionString string
 
 @description('Service Bus queue name that receives messages.')
 param serviceBusQueueName string = 'inbound'
 
-@description('Azure Blob connection name (API connection resource).')
+@description('Azure Blob API connection resource name.')
 param azureBlobConnectionName string = 'azureblob'
 
-@description('Service Bus connection name (API connection resource).')
+@description('Service Bus API connection resource name.')
 param serviceBusConnectionName string = 'servicebus'
 
 var azureBlobManagedApiId = subscriptionResourceId('Microsoft.Web/locations/managedApis', location, 'azureblob')
@@ -85,24 +85,26 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
       actions: {
         CorrelationId: {
           type: 'Compose'
-          inputs: "@{guid()}"
+          inputs: '@{guid()}'
         }
         Ensure_XML_ContentType: {
           type: 'If'
           runAfter: {
-            CorrelationId: [ 'Succeeded' ]
+            CorrelationId: [
+              'Succeeded'
+            ]
           }
           expression: {
             or: [
               {
                 contains: [
-                  "@{toLower(coalesce(triggerOutputs()?['headers']?['Content-Type'], ''))}",
+                  '@{toLower(coalesce(triggerOutputs()?[\'headers\']?[\'Content-Type\'], \'\'))}'
                   'application/xml'
                 ]
               }
               {
                 contains: [
-                  "@{toLower(coalesce(triggerOutputs()?['headers']?['Content-Type'], ''))}",
+                  '@{toLower(coalesce(triggerOutputs()?[\'headers\']?[\'Content-Type\'], \'\'))}'
                   'text/xml'
                 ]
               }
@@ -112,17 +114,17 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
             Write_request_to_ADLS_Gen2_as_blob: {
               type: 'ApiConnection'
               inputs: {
-                body: "@{triggerBody()}"
+                body: '@{triggerBody()}'
                 host: {
                   connection: {
-                    name: "@parameters('$connections')['azureblob']['connectionId']"
+                    name: '@parameters(\'$connections\')[\'azureblob\'][\'connectionId\']'
                   }
                 }
                 method: 'post'
                 path: '/datasets/default/files'
                 queries: {
-                  folderPath: "/@{encodeURIComponent('${blobContainerName}')}"
-                  name: "@{concat('hello-', outputs('CorrelationId'), '.xml')}"
+                  folderPath: '@{concat(\'/\', encodeURIComponent(\'${blobContainerName}\'))}'
+                  name: '@{concat(\'message-\', outputs(\'CorrelationId\'), \'.xml\')}'
                   queryParametersSingleEncoded: true
                 }
                 runtimeConfiguration: {
@@ -131,77 +133,81 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
                   }
                 }
               }
-}
-Send_message_to_ServiceBus_queue: {
-type: 'ApiConnection'
-runAfter: {
-Write_request_to_ADLS_Gen2_as_blob: [ 'Succeeded' ]
-}
-inputs: {
-body: {
-ContentData: "@{encodeBase64(triggerBody())}"
-CorrelationId: "@{outputs('CorrelationId')}"
-}
-host: {
-connection: {
-name: "@parameters('$connections')['servicebus']['connectionId']"
-}
-}
-method: 'post'
-path: "/@{encodeURIComponent('${serviceBusQueueName}')}/messages"
-}
-}
-Response_OK: {
-type: 'Response'
-runAfter: {
-Send_message_to_ServiceBus_queue: [ 'Succeeded' ]
-}
-inputs: {
-statusCode: 200
-body: {
-message: 'Hello from AIS BizTalk Accelerator'
-correlationId: "@{outputs('CorrelationId')}"
-storedIn: '${blobContainerName}'
-queuedTo: '${serviceBusQueueName}'
-}
-}
-}
-}
-else: {
-actions: {
-Response_Unsupported_Media_Type: {
-type: 'Response'
-inputs: {
-statusCode: 415
-body: {
-message: 'Unsupported Media Type. Send XML with Content-Type application/xml or text/xml.'
-correlationId: "@{outputs('CorrelationId')}"
-}
-}
-}
-}
-}
-}
-}
-outputs: {}
-}
-parameters: {
-'$connections': {
-value: {
-azureblob: {
-connectionId: azureBlobConnection.id
-connectionName: azureBlobConnection.name
-id: azureBlobManagedApiId
-}
-servicebus: {
-connectionId: serviceBusConnection.id
-connectionName: serviceBusConnection.name
-id: serviceBusManagedApiId
-}
-}
-}
-}
-}
+            }
+            Send_message_to_ServiceBus_queue: {
+              type: 'ApiConnection'
+              runAfter: {
+                Write_request_to_ADLS_Gen2_as_blob: [
+                  'Succeeded'
+                ]
+              }
+              inputs: {
+                body: {
+                  ContentData: '@{encodeBase64(triggerBody())}'
+                  CorrelationId: '@{outputs(\'CorrelationId\')}'
+                }
+                host: {
+                  connection: {
+                    name: '@parameters(\'$connections\')[\'servicebus\'][\'connectionId\']'
+                  }
+                }
+                method: 'post'
+                path: '/@{encodeURIComponent(\'${serviceBusQueueName}\')}/messages'
+              }
+            }
+            Response_OK: {
+              type: 'Response'
+              runAfter: {
+                Send_message_to_ServiceBus_queue: [
+                  'Succeeded'
+                ]
+              }
+              inputs: {
+                statusCode: 200
+                body: {
+                  message: 'Hello from the Azure Integration Modernization Accelerator'
+                  correlationId: '@{outputs(\'CorrelationId\')}'
+                  storedIn: blobContainerName
+                  queuedTo: serviceBusQueueName
+                }
+              }
+            }
+          }
+          else: {
+            actions: {
+              Response_Unsupported_Media_Type: {
+                type: 'Response'
+                inputs: {
+                  statusCode: 415
+                  body: {
+                    message: 'Unsupported Media Type. Send XML with Content-Type application/xml or text/xml.'
+                    correlationId: '@{outputs(\'CorrelationId\')}'
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      outputs: {}
+    }
+    parameters: {
+      '$connections': {
+        value: {
+          azureblob: {
+            connectionId: azureBlobConnection.id
+            connectionName: azureBlobConnection.name
+            id: azureBlobManagedApiId
+          }
+          servicebus: {
+            connectionId: serviceBusConnection.id
+            connectionName: serviceBusConnection.name
+            id: serviceBusManagedApiId
+          }
+        }
+      }
+    }
+  }
 }
 
 output logicAppId string = logicApp.id
