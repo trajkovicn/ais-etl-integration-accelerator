@@ -21,13 +21,13 @@ if (string.IsNullOrWhiteSpace(subscriptionId) || string.IsNullOrWhiteSpace(resou
     string.IsNullOrWhiteSpace(integrationAccount) || string.IsNullOrWhiteSpace(location) ||
     string.IsNullOrWhiteSpace(mapFile))
 {
-    Console.WriteLine("Usage:
-" +
-        "  dotnet run -- --subscriptionId <subId> --resourceGroup <rg> --integrationAccount <iaName> --location <region> --mapFile <path> [--mapName <name>]
+    Console.WriteLine(
+        """
+        Usage:
+          dotnet run -- --subscriptionId <subId> --resourceGroup <rg> --integrationAccount <iaName> --location <region> --mapFile <path> [--mapName <name>]
 
-" +
-        "Auth: DefaultAzureCredential (az login / VS / MI). You can set AZURE_SUBSCRIPTION_ID env var.
-");
+        Auth: DefaultAzureCredential (az login / VS / MI). You can set AZURE_SUBSCRIPTION_ID env var.
+        """);
     return;
 }
 
@@ -58,8 +58,11 @@ var respText = await resp.Content.ReadAsStringAsync();
 
 if (!resp.IsSuccessStatusCode)
 {
-    Console.Error.WriteLine($"Upload failed ({(int)resp.StatusCode} {resp.ReasonPhrase})
-{respText}");
+    Console.Error.WriteLine(
+        $"""
+        Upload failed ({(int)resp.StatusCode} {resp.ReasonPhrase})
+        {respText}
+        """);
     Environment.ExitCode = 1;
     return;
 }
